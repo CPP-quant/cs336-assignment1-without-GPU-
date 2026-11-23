@@ -1,0 +1,9 @@
+# Python 缓存
+__pycache__/
+*.py[cod]
+# 虚拟环境
+.venv/
+venv/
+# 测试数据/日志
+*.log
+data/
