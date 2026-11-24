@@ -1,90 +1,74 @@
-# Building a Transformer Language Model from Scratch
+# Stanford CS336: Language Modeling from Scratch
 
-**Author:** Yunwei Mo · central_planner@sjtu.edu.cn · [GitHub](https://github.com/CPP-quant)
+**Assignment 1 — Basics, written without a GPU**
 
-This repository is my implementation of
-[Stanford CS336: Language Modeling from Scratch](https://stanford-cs336.github.io/)
-(Spring 2025), Assignment 1. The task is to rebuild the core of a GPT-2-style
-language model — tokenizer included — from raw tensor operations. Attention,
-normalization, and the cross-entropy loss are all written out directly rather than
-assembled from `torch.nn.functional`, and the tokenizer is trained from bytes
-without any external BPE library.
+A **self-study** implementation of Stanford CS336, built against the official staff
+test suite. Thanks to the CS336 instructors for open-sourcing such a first-principles
+curriculum.
 
-## What the assignment covers
+Yunwei Mo is a first-year undergraduate in the School of Computer Science at Shanghai
+Jiao Tong University, majoring in Information Security (Class of 2030). Not enrolled
+for credit; no Gradescope or leaderboard submissions. Implementations live in this
+repository, while datasets, checkpoints and the assignment PDF stay local.
 
-Assignment 1 takes a blank Python package and asks for the full stack behind a
-decoder-only Transformer:
+## Progress
 
-- **A byte-level BPE tokenizer** trained from scratch — pre-tokenization,
-  pair counting, greedy merging, and the encode/decode paths — with no external
-  tokenizer library.
-- **The model itself**: embedding lookup, RMSNorm, rotary position embeddings,
-  SwiGLU feed-forward layers, multi-head self-attention, pre-norm residual
-  blocks, and the language-model head.
-- **The training stack**: AdamW with decoupled weight decay, a warmup-then-cosine
-  learning-rate schedule, global-norm gradient clipping, memory-mapped batch
-  loading, and checkpoint serialization.
-- **The numerics**: stable softmax, log-sum-exp cross-entropy, and initialization
-  schemes that keep activations in range without normalization tricks.
+| Assignment | Topic | Progress |
+| :--- | :--- | :---: |
+| Assignment 1 | Basics — tokenizer, Transformer, optimizer, training | 100% |
+| Assignment 2 | Systems — FlashAttention-2, distributed training | 0% |
+| Assignment 3 | Scaling — scaling laws | 0% |
+| Assignment 4 | Data — filtering and deduplication | 0% |
+| Assignment 5 | Alignment — SFT, RL, DPO | 0% |
 
-## Architecture
+## Assignment 1
 
-| Component | File | Note |
-|---|---|---|
-| `Linear` | `train_linear.py` | truncated-normal init (σ = 0.02), no bias |
-| `Embedding` | `train_embedding.py` | lookup table over the vocabulary |
-| `RMSNorm` | `train_rmsnorm.py` | epsilon inside the square root, no mean-centering |
-| `SwiGLU` | `train_swiglu.py` | gated feed-forward, three projections |
-| `RoPE` | `train_rope.py` | cached cos/sin, rotation on even/odd coordinate pairs |
-| `softmax` | `train_softmax.py` | max-subtraction for numerical stability |
-| `scaled_dot_product_attention` | `train_scaled_dot_product_attention.py` | explicit QKᵀ/√d_k, causal mask, V |
-| `MultiHeadSelfAttention` | `train_multihead_self_attention*.py` | manual head split and concat, RoPE on Q and K |
-| `TransformerBlock` | `train_transformer_block.py` | pre-norm residual connections |
-| `TransformerLM` | `train_transformer_lm.py` | embedding → N blocks → RMSNorm → LM head |
-| `cross_entropy` | `train_cross_entropy.py` | hand-written log-sum-exp |
-| BPE trainer | `train_bpe.py` | GPT-2 pre-tokenization, frequency aggregation, pair merging |
-| Tokenizer | `train_tokenizer.py` | vocab/merge serialization, encode, decode, special tokens |
+About 1,400 lines in `cs336_basics/`. Attention, normalization and the cross-entropy
+loss are written from raw tensor operations; the tokenizer is trained from bytes with
+no external BPE library.
 
-## What I took away from it
+- **Tokenizer** — byte-level BPE from scratch. `encode` reproduces OpenAI's `tiktoken`
+  token-for-token on a TinyStories sample, which means the merge *order* agrees, not
+  just the final vocabulary.
+- **Model** — `Linear`, `Embedding`, `RMSNorm`, `SiLU` / `SwiGLU`, `RoPE`, `softmax`,
+  scaled dot-product attention, multi-head attention, pre-norm Transformer block, and
+  the LM head.
+- **Training** — `AdamW` with bias correction and decoupled weight decay, linear warmup
+  plus cosine schedule, global-norm gradient clipping, memory-mapped batch loading, and
+  checkpointing.
 
-**Tokenization hides more subtlety than the model does.**
-BPE looks like a textbook greedy algorithm until tie-breaking starts to matter.
-The reference GPT-2 tokenizer trains on a `bytes_to_unicode` alphabet, but that
-mapping does not preserve byte order — byte 32 becomes `Ġ` (U+0120) while byte 33
-becomes `!` (U+0021). Comparing merged pairs on mapped characters can therefore
-break ties in a different order than the reference, and the merge list diverges
-after a few thousand merges. Training directly on raw bytes keeps the merge order
-consistent. Getting the encoder to reproduce `tiktoken` token-for-token was the
-point where the algorithm actually clicked.
+All 46 runnable tests pass. Two further tests need Unix `resource` limits and are
+skipped on Windows.
 
-**Numerical stability is a design decision, not boilerplate.**
-Writing `exp(x − max(x)) / Σ exp(x − max(x))` by hand makes it obvious why the
-subtraction exists: without it, logits in the tens overflow fp32 immediately. The
-same reasoning carries into cross-entropy, where `log(Σ exp(shifted)) −
-shifted[target]` never materializes a probability vector at all. RMSNorm puts
-epsilon inside the square root for the same reason — a zero-variance input must
-not turn into a division by zero.
+## Log
 
-**Positional encoding shapes what the model can even learn.**
-Implementing RoPE as an explicit 2×2 rotation over coordinate pairs, rather than
-adding a position vector, made the relative-position property concrete: the dot
-product of a rotated query and key depends only on their offset. I cache cos/sin
-for `max_seq_len` positions and index them with `token_positions` instead of
-slicing `[:seq_len]`, which keeps the layer correct for non-contiguous indices.
-
-**Constraints change the algorithm, not just the runtime.**
-The naive version of BPE recounts every adjacent pair after every merge, which is
-hopeless on a multi-megabyte corpus. Aggregating the corpus into a histogram of
-pre-tokenized words first means a word seen ten thousand times enters the merge
-loop once with weight 10⁴, and pair counts update incrementally instead of being
-recomputed. Working without a GPU made this kind of reasoning unavoidable: the
-only way through the corpus was to stop doing redundant work.
+- **2026-11-15 → 11-17** — `train_bpe.py`, fitted around coursework across three
+  evenings. One trap worth recording: the corpus has to be read in text mode, since
+  Python normalizes CRLF while the reference merges were built on normalized text —
+  reading it as binary trains a token the official vocabulary does not contain.
+- **2026-11-18** — BPE passes in the morning. Tokenizer written next, and `encode`
+  matches `tiktoken` token-for-token by mid-afternoon — that checks the merge *order*,
+  not just the final vocabulary. Then turned to the model: `Linear`, `Embedding`,
+  `RMSNorm`.
+- **2026-11-19** — `SwiGLU`; `RoPE` at 11:31 after deriving θ_{i,k} = i / Θ^{2k/d_k}
+  by hand. What took the thinking was not the formula but seeing why a fixed rotation
+  encodes *relative* offset at all — the dot product of a rotated query and key
+  collapses to a function of their distance. `softmax` in the evening, then scaled
+  dot-product attention and multi-head attention five minutes apart.
+- **2026-11-20** — RoPE fused into attention; the pre-norm block built so the residual
+  shortcut stays an untouched identity path; full `TransformerLM` running by midday.
+  Cross-entropy in the evening — hand-written log-sum-exp, no `F.cross_entropy`.
+- **2026-11-23** — Went back and cleaned up `softmax` and `cross_entropy` first, then
+  the optimizer: `AdamW` with lazy state init, bias correction and decoupled weight
+  decay; warmup + cosine schedule; global-norm gradient clipping.
+- **2026-11-24** — Data loading over a memory-mapped token array, checkpoint
+  round-trip, and `SiLU` pulled into its own module so `SwiGLU` stops calling
+  `F.silu`. Training stack complete; all runnable tests green.
 
 ## Environment
 
-Developed on Windows 11 with CPU only. Two of the assignment's memory-usage checks
-require Linux `resource` limits and are skipped there; a small shim
-(`resource.py`) keeps the import working on Windows.
+Windows 11, CPU only — no GPU at any point. `resource.py` is a small shim that keeps
+`import resource` in the test suite importable on Windows.
 
 ## Quickstart
 
