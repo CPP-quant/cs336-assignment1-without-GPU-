@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+from cs336_basics.train_silu import SiLU
 
 class SwiGLU(nn.Module):
     """
@@ -35,7 +36,7 @@ class SwiGLU(nn.Module):
     
     def forward(self,x:torch.Tensor)->torch.Tensor:
         """SwiGLU(x,W1,W2,W3)=W2*(SiLU(W1*x)⊙W3*x)"""
-        gate=nn.functional.silu(self.w1(x))
+        gate=SiLU(self.w1(x))
         value=self.w3(x)
         hidden=gate*value   #逐元素乘
         return self.w2(hidden)
